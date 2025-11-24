@@ -1,0 +1,66 @@
+# LobbyManager — simple lobby with run counter and Start button
+# Node tree expected:
+# LobbyRoot (Control) [this script]
+#  └ VBox (VBoxContainer)
+#      ├ TitleLabel (Label)
+#      ├ RunCounterLabel (Label)
+#      └ StartRunBtn (Button)
+extends Control
+
+var run_count : int = 0
+var start_btn : Button = null
+var run_label : Label = null
+
+func _ready() -> void:
+	# find nodes defensively
+	start_btn = find_child("StartRunBtn", true, false) as Button
+	run_label = find_child("RunCounterLabel", true, false) as Label
+
+	# connect
+	if start_btn:
+		if not start_btn.is_connected("pressed", Callable(self, "_on_start_pressed")):
+			start_btn.connect("pressed", Callable(self, "_on_start_pressed"))
+	else:
+		push_warning("LobbyManager: StartRunBtn not found under LobbyRoot.")
+
+	# initialize UI
+	_update_run_label()
+
+
+func _on_start_pressed() -> void:
+	# increment counter only when starting from lobby (persist for this session)
+	run_count += 1
+	_update_run_label()
+
+	# Hide lobby and start run — use RunManager if available, else print
+	var runmgr = get_node_or_null("/root/RunManager")
+	# Show CombatRoot like MainUI would
+	var mainroot = get_node_or_null("/root/Mainroot")
+	if mainroot:
+		var cr = mainroot.get_node_or_null("CombatRoot")
+		var title = mainroot.get_node_or_null("TitleScreen")
+		var sbtn = mainroot.get_node_or_null("StartRunBtn")
+		if title:
+			title.visible = false
+			title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if cr:
+			cr.visible = true
+		if sbtn:
+			sbtn.disabled = true
+
+	# Hide lobby node (we assume it is a top-level UI under Mainroot)
+	visible = false
+
+	if runmgr and runmgr.has_method("start_run"):
+		runmgr.start_run()
+	else:
+		print("LobbyManager: RunManager not found or missing start_run().")
+
+
+func _update_run_label() -> void:
+	if run_label:
+		run_label.text = "Runs this session: %d" % [run_count]
+
+
+func _on_start_run_btn_pressed() -> void:
+	pass # Replace with function body.

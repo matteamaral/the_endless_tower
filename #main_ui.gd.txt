@@ -1,0 +1,124 @@
+#main_ui.gd
+
+extends Node2D
+
+#RunManager.gd in autoload, but empty script
+#enum weapons {BLOODBLADE,BESEGRARE,SELAKSI}
+const MAXHP:int = 100
+
+@onready var sprite:Sprite2D = $PlayerIcon
+@onready var mainlog: Label = $Log
+
+# @export so they show in nodetree
+var HP:int = 100
+var energy:int = 100
+var alive:bool = true
+var hero_name:String = "Hero"
+var character_name:Array =["Hero","Mipsy","Ronan","Epponnee"]
+var chosen_character:String = ""
+var enemy_list:Array = [HP,energy,alive,hero_name,"alpha","beta","gama"]
+var realm_reacher:Array =["Krisset","Marihj Robin","Claïre","Darui","Dr. Wuku","Elina","Joshir"]
+var compendium:Dictionary ={"Krisset":1,"Marihj Robin":2,"Darui":3}
+var chosen_number:int = randi()
+var show_StartGameBtn:bool = false
+
+var counter:int = 0
+#var current_weapon:= weapons.BLOODBLADE
+	
+# Called when the node enters the scene tree for the first time.
+func _ready() -> void:
+	_character_alive()
+	_hero("DPS",15)
+	print(compendium["Krisset"])
+	print(compendium.size())
+	print(chosen_number)
+	#log.text = str(chosen_number)
+	chosen_character = character_name[randi_range(0,3)]
+	for l in enemy_list:
+		print("number:",l)
+	for i in range(10):
+		if i == 5:
+			break
+			#pass
+		print(i)
+	if HP == 0:
+		print("You Lost")
+	#elif for singulatiries
+	#-= to decrease | += to increase | == to equilize | = to set value | >= <= > < are school functions
+	#+= to increase
+	else:
+		print("One")
+	if HP > 0:
+		print("Good For You!")
+	else:
+		print("Three")
+	match chosen_character:
+		"Hero": mainlog.text = "You've chosen Hero"
+			#_hero("DPS",15):
+		"Mipsy": mainlog.text = "You've chosen Mipsy"
+			#_mipsy("sub_DPS",13)
+		"Ronan": mainlog.text = "You've chosen Ronan"
+			#_ronan("support",10)
+		"Epponnee": mainlog.text = "You've chosen Epponnee"
+			#_epponnee("sustain",10)
+	#while counter < 5:
+		#pass
+
+
+func _hide_button() -> void:
+	RunManager.start_game_btn.hide()
+	
+# Called when the node enters the scene tree for the first time.
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _process(_delta: float) -> void:
+	if Input.is_action_just_pressed("Up"):
+		print("Up")
+	if Input.is_action_just_pressed("Right"):
+		print("Right")
+	if Input.is_action_just_pressed("Left"):
+		print("Left")
+	if Input.is_action_just_pressed("Down"):
+		print("Down")
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		pass
+		
+func _character_alive() -> bool:
+	if alive:
+		print("alive")
+		return true
+	else:
+		print("dead")
+		return false
+		
+
+func _input(event: InputEvent) -> void:
+	if event.is_action_released("Down"):
+		print("daddy")
+		$PlayerIcon.position.y += 100
+	if event.is_action_released("Up"):
+		print("mommy")
+		$PlayerIcon.position.y -= 100
+
+func _on_start_game_btn_pressed() -> void:
+	pass # Replace with function body.
+	
+func _hero(main_type:String,initial_strength:int):
+	main_type = "DPS"
+	initial_strength = 15
+	if main_type == "DPS" and initial_strength == 15:
+		print ("You've chosen Hero. A DPS with 15 STR")
+func _mipsy(main_type:String,initial_strength:int):
+	main_type = "sub_DPS"
+	initial_strength = 13
+	if main_type == "sub_DPS" and initial_strength == 13:
+		print ("You've chosen Mipsy. A Sub-DPS with 13 STR")
+func _ronan(main_type:String,initial_strength:int):
+	main_type = "support"
+	initial_strength = 10
+	if main_type == "support" and initial_strength == 10:
+		print ("You've chosen Ronan. A Support with 10 STR")
+func _epponnee(main_type:String,initial_strength:int):
+	main_type = "sustain"
+	initial_strength = 10
+	if main_type == "sustain" and initial_strength == 10:
+		print ("You've chosen Epponnee. A Sustain with 10 STR")

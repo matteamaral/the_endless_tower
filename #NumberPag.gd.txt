@@ -1,0 +1,130 @@
+#NumberPag.gd
+
+extends Node
+
+
+@onready var LabelPanel: Label = $Panel/LabelPanel
+@onready var Efx_press: AudioStreamPlayer = $Efx_press
+@onready var Efx_accepted: AudioStreamPlayer = $Efx_accepted
+@onready var Efx_error: AudioStreamPlayer = $Efx_error
+@onready var timer_reset: Timer = $TimerReset
+
+
+
+var secret_code:Array = [1,4,6,1]
+var current_code:Array = []
+var add_number:int = 0
+var max_number:int = 4
+var input_active:bool = true
+var start_game_btn_visible:bool = false
+
+# Called when the node enters the scene tree for the first time.
+func _ready() -> void:
+	LabelPanel.text = ""
+	#_hide_button()
+
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _process(_delta: float) -> void:
+	if max_number == add_number and input_active:
+		input_active = false
+		_check_code()
+	
+	if Input.is_action_just_pressed("0"):
+		_add_code(0)
+	elif Input.is_action_just_pressed("1"):
+		_add_code(1)
+	elif Input.is_action_just_pressed("2"):
+		_add_code(2)
+	elif Input.is_action_just_pressed("3"):
+		_add_code(3)
+	elif Input.is_action_just_pressed("4"):
+		_add_code(4)
+	elif Input.is_action_just_pressed("5"):
+		_add_code(5)
+	elif Input.is_action_just_pressed("6"):
+		_add_code(6)
+	elif Input.is_action_just_pressed("7"):
+		_add_code(7)
+	elif Input.is_action_just_pressed("8"):
+		_add_code(8)
+	elif Input.is_action_just_pressed("9"):
+		_add_code(9)
+	
+
+func _add_code(val:int) -> void:
+	if add_number < max_number:
+		Efx_press.play()
+		add_number += 1
+		current_code.append(val)
+		_show_panel()
+		
+func _show_panel() -> void:
+	var text_label:String = str(current_code)
+	text_label = text_label.replace("[","").replace("]","").replace(",","")
+	LabelPanel.text = text_label
+
+func _check_code() -> bool:
+	if current_code == secret_code:
+		LabelPanel.text = "ACCEPTED"
+		Efx_accepted.play()
+		timer_reset.start()
+		#_show_button()
+		return true
+		
+	else:
+		LabelPanel.text = "ERROR"
+		Efx_error.play()
+		timer_reset.start()
+		#_hide_button()
+		return false
+
+#func _show_button() -> void:
+	#var node_b = get_node("$../StartGameBtn")
+	#node_b.visible = true
+	#
+#func _hide_button() -> void:
+	#RunManager.start_game_btn.set_visibility_layer_bit(0,false)
+	
+func _on_btn_1_pressed() -> void:
+	_add_code(1)
+
+
+func _on_btn_2_pressed() -> void:
+	_add_code(2)
+
+
+func _on_btn_3_pressed() -> void:
+	_add_code(3)
+
+
+func _on_btn_4_pressed() -> void:
+	_add_code(4)
+
+
+func _on_btn_5_pressed() -> void:
+	_add_code(5)
+
+
+func _on_btn_6_pressed() -> void:
+	_add_code(6)
+
+
+func _on_btn_7_pressed() -> void:
+	_add_code(7)
+
+
+func _on_btn_8_pressed() -> void:
+	_add_code(8)
+
+
+func _on_btn_9_pressed() -> void:
+	_add_code(9)
+
+
+func _on_btn_0_pressed() -> void:
+	_add_code(0)
+
+
+func _on_timer_reset_timeout() -> void:
+	get_tree().reload_current_scene()
+	

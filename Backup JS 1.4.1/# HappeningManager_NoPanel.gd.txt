@@ -1,0 +1,248 @@
+# HappeningManager_NoPanel.gd
+# Safe for: HappeningRoot -> VBox (no PanelContainer)
+extends Control
+
+var runmgr : Node = null
+var vbox : VBoxContainer = null
+var title_label : Label = null
+var info_label : Label = null
+var accept_btn : Button = null
+var close_btn : Button = null
+
+var _original_parent : Node = null
+
+func _ready() -> void:
+	# resolve nodes safely (no $ or @onready)
+	runmgr = get_node_or_null("/root/RunManager")
+	vbox = get_node_or_null("VBox")
+	if vbox != null:
+		title_label = vbox.get_node_or_null("TitleLabel")
+		info_label = vbox.get_node_or_null("InfoLabel")
+		accept_btn = vbox.get_node_or_null("ButtonsRow/AcceptBtn")
+		close_btn = vbox.get_node_or_null("ButtonsRow/CloseBtn")
+
+	_print_debug_state()
+	_hide_panel()
+
+	if runmgr != null:
+		if not runmgr.is_connected("room_changed", Callable(self, "_on_room_changed")):
+			runmgr.connect("room_changed", Callable(self, "_on_room_changed"))
+
+	if accept_btn != null:
+		if not accept_btn.is_connected("pressed", Callable(self, "_on_accept_pressed")):
+			accept_btn.connect("pressed", Callable(self, "_on_accept_pressed"))
+	if close_btn != null:
+		if not close_btn.is_connected("pressed", Callable(self, "_on_close_pressed")):
+			close_btn.connect("pressed", Callable(self, "_on_close_pressed"))
+
+	# sync state immediately
+	_on_room_changed()
+
+
+func _print_debug_state() -> void:
+	print("HappeningManager_NoPanel: vbox found:", vbox != null)
+	print("  runmgr found:", runmgr != null)
+	if vbox != null:
+		print("  vbox path:", vbox.get_path())
+		var par = vbox.get_parent()
+		if par != null:
+			print("  vbox parent:", par, " parent path:", par.get_path())
+		else:
+			print("  vbox parent: null")
+	if get_node_or_null("/root/Mainroot") != null:
+		print("  Mainroot exists")
+
+
+# ---------- show / hide ----------
+
+# Replace existing _hide_panel() with this:
+func _hide_panel() -> void:
+	if vbox == null:
+		print("HappeningManager: _hide_panel() vbox null")
+		return
+
+	# If we previously reparented vbox to mainroot, try to put it back
+	if _original_parent != null and vbox.get_parent() != _original_parent:
+		var cur_parent = vbox.get_parent()
+		if cur_parent != null:
+			cur_parent.remove_child(vbox)
+		# append back to original parent (no index stored; safe)
+		_original_parent.add_child(vbox)
+
+	# hide and disable input
+	vbox.visible = false
+	if vbox is Control:
+		vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		vbox.set_focus_mode(0 as FocusMode)
+		vbox.set_focus_behavior_recursive(0 as Control.FocusBehaviorRecursive)
+
+	# restore combat root visibility (defensive)
+	var mr = get_node_or_null("/root/Mainroot")
+	if mr != null:
+		var cr = mr.get_node_or_null("CombatRoot")
+		if cr != null:
+			cr.visible = true
+
+	if accept_btn != null:
+		accept_btn.disabled = false
+	if close_btn != null:
+		close_btn.disabled = false
+
+	print("HappeningManager: hidden")
+
+
+# Replace existing _show_panel() with this:
+func _show_panel(title_text: String, info_text: String, show_accept: bool) -> void:
+	if vbox == null:
+		print("HappeningManager: _show_panel() vbox null")
+		return
+
+	var mainr = get_node_or_null("/root/Mainroot")
+
+	# If the vbox is not currently a child of mainroot, move it there
+	# but remember original parent so we can return it later.
+	if mainr != null and vbox.get_parent() != mainr:
+		_original_parent = vbox.get_parent()
+		# remove from current parent (if any)
+		if _original_parent != null:
+			_original_parent.remove_child(vbox)
+		# add under mainroot so it floats above other UI
+		mainr.add_child(vbox)
+		# ensure it is last so it's visually on top
+		if mainr.get_child_count() > 0:
+			mainr.move_child(vbox, mainr.get_child_count() - 1)
+
+	# Hide underlying CombatRoot so it doesn't capture input or show through
+	if mainr != null:
+		var cr = mainr.get_node_or_null("CombatRoot")
+		if cr != null:
+			cr.visible = false
+
+	# bring to front if API is available
+	if vbox.has_method("move_to_front"):
+		vbox.move_to_front()
+	elif vbox.has_method("raise"):
+		vbox.raise()
+
+	# show and enable input/focus
+	vbox.visible = true
+	if vbox is Control:
+		vbox.mouse_filter = Control.MOUSE_FILTER_STOP
+		vbox.set_focus_mode(2 as FocusMode)
+		vbox.set_focus_behavior_recursive(1 as Control.FocusBehaviorRecursive)
+
+	if title_label != null:
+		title_label.text = title_text
+		title_label.horizontal_alignment = 1 as HorizontalAlignment
+	if info_label != null:
+		info_label.text = info_text
+		info_label.horizontal_alignment = 1 as HorizontalAlignment
+
+	if accept_btn != null:
+		accept_btn.visible = show_accept
+		accept_btn.disabled = false
+	if close_btn != null:
+		close_btn.visible = true
+		close_btn.disabled = false
+
+	if accept_btn != null and accept_btn.visible:
+		accept_btn.grab_focus()
+	elif close_btn != null:
+		close_btn.grab_focus()
+
+	print("HappeningManager: shown -> ", title_text)
+
+
+
+# ---------- room change handler ----------
+
+func _on_room_changed() -> void:
+	var rm = get_node_or_null("/root/RunManager")
+	if rm == null or rm.RUN == null:
+		_hide_panel()
+		return
+
+	var room = rm.RUN.get("currentRoom", null)
+	if typeof(room) != TYPE_DICTIONARY:
+		_hide_panel()
+		return
+
+	var rtype : String = str(room.get("type", ""))
+	if rtype != "happening":
+		_hide_panel()
+		return
+
+	var processed : bool = bool(room.get("processed", false))
+	if processed:
+		_show_panel("Event", "You already processed this event. Continue when ready.", false)
+	else:
+		_show_panel("You found a small spring", "Drink and recover 10 HP? (Accept) — Close = give up (die).", true)
+
+
+# ---------- accept / close actions ----------
+
+func _on_accept_pressed() -> void:
+	var rm = get_node_or_null("/root/RunManager")
+	if rm == null or rm.RUN == null:
+		_hide_panel()
+		return
+
+	if accept_btn != null:
+		accept_btn.disabled = true
+	if close_btn != null:
+		close_btn.disabled = true
+
+	print("HappeningManager_NoPanel: Accept pressed — healing and advancing")
+
+	var hero : Dictionary = rm.RUN.get("hero", {}) as Dictionary
+	hero["hp"] = min(int(hero.get("maxHp", 0)), int(hero.get("hp", 0)) + 10)
+	rm.RUN["hero"] = hero
+
+	if rm.RUN.get("currentRoom", null):
+		rm.RUN["currentRoom"]["processed"] = true
+	if rm.RUN.has("happening"):
+		var hdict := rm.RUN.get("happening", {}) as Dictionary
+		hdict["processed"] = true
+		rm.RUN["happening"] = hdict
+
+	if rm.has_method("_push_log"):
+		rm._push_log("You drank from the spring and recovered 10 HP.")
+	else:
+		print("HappeningManager_NoPanel: healed 10 HP (no _push_log)")
+
+	_hide_panel()
+	await get_tree().create_timer(0.12).timeout
+	if rm.has_method("next_room"):
+		rm.next_room()
+		await get_tree().create_timer(0.10).timeout
+		_on_room_changed()
+
+
+func _on_close_pressed() -> void:
+	var rm = get_node_or_null("/root/RunManager")
+	if accept_btn != null:
+		accept_btn.disabled = true
+	if close_btn != null:
+		close_btn.disabled = true
+
+	print("HappeningManager_NoPanel: Close pressed — killing hero and calling run end")
+
+	if rm != null and rm.RUN != null:
+		if rm.RUN.get("currentRoom", null):
+			rm.RUN["currentRoom"]["processed"] = true
+
+		var hero : Dictionary = rm.RUN.get("hero", {}) as Dictionary
+		hero["hp"] = 0
+		rm.RUN["hero"] = hero
+
+		if rm.has_method("_push_log"):
+			rm._push_log("You gave up — the trap kills you.")
+
+		await get_tree().create_timer(0.08).timeout
+
+		if rm.has_method("_handle_run_end"):
+			rm._handle_run_end()
+		else:
+			rm.RUN["active"] = false
+
+	_hide_panel()

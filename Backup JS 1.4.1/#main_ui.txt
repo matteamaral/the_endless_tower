@@ -1,0 +1,204 @@
+#main_ui
+extends Control
+
+# replace any @onready lines for these with simple declarations
+var start_run_btn : Button = null
+var combat_root : Node = null
+var title_screen : Node = null
+var runmgr : Node = null
+var _title_screen_parent : Node = null
+
+func _ready() -> void:
+	# try direct $ paths first (fast)
+	start_run_btn = get_node_or_null("StartRunBtn")
+	combat_root = get_node_or_null("CombatRoot")
+	title_screen = get_node_or_null("TitleScreen")
+
+	# if not found directly, search recursively (handles if button moved under TitleScreen)
+	if not start_run_btn:
+		start_run_btn = find_child("StartRunBtn", true, false)
+	if not combat_root:
+		combat_root = find_child("CombatRoot", true, false)
+	if not title_screen:
+		title_screen = find_child("TitleScreen", true, false)
+
+	# debug prints so you know what's found
+	print("MainUI _ready(): StartRunBtn found:", start_run_btn != null, " CombatRoot found:", combat_root != null, " TitleScreen found:", title_screen != null)
+
+	# guard: make sure Start button is connected and enabled
+	if start_run_btn:
+		if not start_run_btn.is_connected("pressed", Callable(self, "_on_start_pressed")):
+			start_run_btn.connect("pressed", Callable(self, "_on_start_pressed"))
+		start_run_btn.disabled = false
+	else:
+		push_warning("MainUI: StartRunBtn not found. Check node name or location in Main.tscn.")
+
+	# find RunManager autoload safely and connect signals
+	runmgr = get_node_or_null("/root/RunManager")
+	if runmgr:
+		if not runmgr.is_connected("run_started", Callable(self, "_on_run_started")):
+			runmgr.connect("run_started", Callable(self, "_on_run_started"))
+		if not runmgr.is_connected("combat_started", Callable(self, "_on_combat_started")):
+			runmgr.connect("combat_started", Callable(self, "_on_combat_started"))
+		if not runmgr.is_connected("run_ended", Callable(self, "_on_run_ended")):
+			runmgr.connect("run_ended", Callable(self, "_on_run_ended"))
+	else:
+		push_warning("MainUI: RunManager autoload not found. Add it in Project -> Project Settings -> Autoload.")
+
+	# Ensure initial visibility state: only the title should be visible
+	# Hide gameplay roots so they don't show simultaneously
+	_reset_all_game_screens_to_title()
+
+func _reset_all_game_screens_to_title() -> void:
+	# Title visible (if exists), other gameplay screens hidden and ignore mouse
+	if title_screen:
+		title_screen.visible = true
+		if title_screen is Control:
+			title_screen.mouse_filter = Control.MOUSE_FILTER_STOP
+	# Combat
+	if combat_root:
+		combat_root.visible = false
+		if combat_root is Control:
+			combat_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Puzzle/Happening roots if present
+	var pu = find_child("PuzzleRoot", true, false)
+	if pu and pu is Control:
+		pu.visible = false
+		pu.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ha = find_child("HappeningRoot", true, false)
+	if ha and ha is Control:
+		ha.visible = false
+		ha.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+func _on_run_started() -> void:
+	print("MainUI: _on_run_started() called.")
+	# hide title screen and detach from blocking if present
+	if title_screen:
+		# If title is currently parented, store parent so we can reattach later
+		if title_screen.get_parent() and _title_screen_parent == null:
+			_title_screen_parent = title_screen.get_parent()
+
+		# hide and ignore mouse input
+		title_screen.visible = false
+		if title_screen is Control:
+			title_screen.hide()
+			title_screen.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# Hide puzzle/happening UIs if present
+	var pu = find_child("PuzzleRoot", true, false)
+	if pu and pu is Control:
+		pu.visible = false
+		pu.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ha = find_child("HappeningRoot", true, false)
+	if ha and ha is Control:
+		ha.visible = false
+		ha.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# show combat root and allow it to capture input
+	if combat_root:
+		combat_root.visible = true
+		if combat_root is Control:
+			combat_root.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	# disable start button to avoid accidental restarts
+	if start_run_btn:
+		start_run_btn.disabled = true
+
+func _on_run_ended() -> void:
+	print("MainUI: _on_run_ended() called")
+
+	# If RunManager is missing, do minimal cleanup (as before)
+	if not runmgr or not runmgr.RUN:
+		if start_run_btn:
+			start_run_btn.disabled = false
+		# Hide combat UI if present
+		if combat_root and combat_root is Control:
+			combat_root.visible = false
+			combat_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_update_start_button_state()
+		return
+
+	# If the hero died, do NOT auto-switch to Title.
+	# Let CombatManager show the death popup and handle the player's "Return to Title" action.
+	var hero_hp : int = int(runmgr.RUN.get("hero", {}).get("hp", 0))
+	if hero_hp <= 0:
+		print("MainUI: run ended by death; deferring Title switch to CombatManager")
+		# Keep Start disabled so user cannot start a new run before acknowledging death
+		if start_run_btn:
+			start_run_btn.disabled = true
+		# Ensure CombatRoot remains visible so CombatManager can show the death popup
+		if combat_root and combat_root is Control:
+			combat_root.visible = true
+			combat_root.mouse_filter = Control.MOUSE_FILTER_STOP
+		# Do not change TitleScreen visibility here; CombatManager will reveal Title when player presses Return.
+		return
+
+	# Non-death end-of-run behavior (normal run end / victory)
+	# First, ensure Start button is enabled
+	if start_run_btn:
+		start_run_btn.disabled = false
+
+	# Reattach title_screen if we detached it earlier
+	if title_screen and _title_screen_parent and title_screen.get_parent() == null:
+		_title_screen_parent.add_child(title_screen)
+
+	# Show title screen if present and make it capture input
+	if title_screen:
+		title_screen.visible = true
+		if title_screen is Control:
+			title_screen.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	# Hide combat UI if present and stop it capturing input
+	if combat_root:
+		combat_root.visible = false
+		if combat_root is Control:
+			combat_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# Hide puzzle/happening UI defensively
+	var pu = find_child("PuzzleRoot", true, false)
+	if pu and pu is Control:
+		pu.visible = false
+		pu.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ha = find_child("HappeningRoot", true, false)
+	if ha and ha is Control:
+		ha.visible = false
+		ha.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	_update_start_button_state()
+
+
+# Called when user clicks Start Run
+func _on_start_pressed() -> void:
+	print("MainUI: _on_start_pressed() called.")
+	# detach title screen to avoid it blocking the UI
+	if title_screen and title_screen.get_parent() and _title_screen_parent == null:
+		_title_screen_parent = title_screen.get_parent()
+		_title_screen_parent.remove_child(title_screen)
+	# proceed with start logic
+	if start_run_btn:
+		start_run_btn.disabled = true
+
+	if runmgr:
+		runmgr.start_run()
+	else:
+		print("MainUI: start_run requested but RunManager is missing.")
+		# re-enable so user can retry / fix autoload
+		if start_run_btn:
+			start_run_btn.disabled = false
+
+# RunManager signaled combat started
+func _on_combat_started() -> void:
+	# Ensure CombatRoot is visible and ready
+	if combat_root:
+		combat_root.visible = true
+		if combat_root is Control:
+			combat_root.mouse_filter = Control.MOUSE_FILTER_STOP
+
+func _update_start_button_state() -> void:
+	# If a run is already active, disable the button; otherwise enable
+	if runmgr and runmgr.RUN and runmgr.RUN.get("active", false):
+		if start_run_btn:
+			start_run_btn.disabled = true
+	else:
+		if start_run_btn:
+			start_run_btn.disabled = false

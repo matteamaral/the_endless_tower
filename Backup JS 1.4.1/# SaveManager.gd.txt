@@ -1,0 +1,30 @@
+# SaveManager.gd
+extends Node
+
+const SAVE_PATH := "user://save.cfg"
+
+func load() -> Dictionary:
+	var cfg := ConfigFile.new()
+	var err := cfg.load(SAVE_PATH)
+	if err == OK:
+		var s := {
+			"firstDeath": bool(cfg.get_value("global", "firstDeath", false)),
+			"temples": int(cfg.get_value("global", "temples", 0)),
+			"unlocks": cfg.get_value("global", "unlocks", {})
+		}
+		return s
+	# fallback default dictionary
+	return {
+		"firstDeath": false,
+		"temples": 0,
+		"unlocks": {}
+	}
+
+func save_to_disk(save_dict: Dictionary) -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("global", "firstDeath", bool(save_dict.get("firstDeath", false)))
+	cfg.set_value("global", "temples", int(save_dict.get("temples", 0)))
+	cfg.set_value("global", "unlocks", save_dict.get("unlocks", {}))
+	var err := cfg.save(SAVE_PATH)
+	if err != OK:
+		push_error("SaveManager: failed to save to disk, err=" + str(err))

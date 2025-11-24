@@ -1,0 +1,585 @@
+# RunManager.gd
+# Godot 4 compatible Run manager for the tower run.
+# - No ternaries
+# - Defensive checks everywhere
+# - Rooms: fight, puzzle, happening, boss
+# - Happening: heal +10 HP once (processed flag) applied by HappeningManager or here when appropriate
+# - Combat ends emit boon signal; losing marks run ended but leaves RUN usable for UI
+
+extends Node
+
+# Signals
+signal run_started
+signal combat_started
+signal room_changed
+signal combat_victory_boon
+signal run_ended
+
+# State
+var RUN : Dictionary = {}
+var SAVE : Dictionary = {
+	"firstDeath": false,
+	"temples": 0,
+	"unlocks": {},
+	"swan_seen": false
+}
+
+const MAX_FLOOR_ROOMS : int = 10
+
+func _ready() -> void:
+	randomize()
+	var sm = get_node_or_null("/root/SaveManager")
+	if sm:
+		var s = sm.load()
+		if typeof(s) == TYPE_DICTIONARY:
+			SAVE = s
+
+# Helper: ensure a value is a Dictionary (never null)
+func _ensure_dict(val) -> Dictionary:
+	if typeof(val) != TYPE_DICTIONARY or val == null:
+		return {}
+	return val
+
+# ---------------- Public API ----------------
+func start_run() -> void:
+	if RUN and RUN.get("active", false):
+		return
+	_init_run()
+	emit_signal("run_started")
+	_generate_and_enter_room()
+
+func player_attack() -> void:
+	if not RUN or not RUN.get("inCombat", false):
+		return
+	var target_id = RUN.get("combat", {}).get("selected_target_id", null)
+	if target_id == null and RUN.get("combat", {}).get("enemies", []).size() > 0:
+		target_id = RUN["combat"]["enemies"][0].get("id", null)
+	_perform_player_attack(target_id)
+	_advance_turn()
+
+func player_ultimate() -> void:
+	if not RUN or not RUN.get("inCombat", false):
+		return
+	var cost : int = 60
+	var hero : Dictionary = RUN.get("hero", {})
+	if int(hero.get("energy", 0)) < cost:
+		_push_log("Not enough energy for Ultimate.")
+		return
+	hero["energy"] = max(0, int(hero.get("energy", 0)) - cost)
+	RUN["hero"] = hero
+	var target_id = RUN.get("combat", {}).get("selected_target_id", null)
+	if target_id == null and RUN.get("combat", {}).get("enemies", []).size() > 0:
+		target_id = RUN["combat"]["enemies"][0].get("id", null)
+	_perform_player_ultimate(target_id)
+	_advance_turn()
+
+func player_guard() -> void:
+	if not RUN:
+		return
+	var hero : Dictionary = RUN.get("hero", {})
+	hero["_guard"] = int(hero.get("_guard", 0)) + 1
+	hero["energy"] = min(int(hero.get("maxEnergy", 0)), int(hero.get("energy", 0)) + 5)
+	RUN["hero"] = hero
+	_push_log("Hero braces for incoming attacks.")
+	_advance_turn()
+
+func player_charge() -> void:
+	if not RUN:
+		return
+	var hero : Dictionary = RUN.get("hero", {})
+	hero["energy"] = min(int(hero.get("maxEnergy", 0)), int(hero.get("energy", 0)) + int(hero.get("maxEnergy", 0) * 0.5))
+	RUN["hero"] = hero
+	_push_log("Hero charges and recovers energy.")
+	_advance_turn()
+
+# Called by CombatManager for enemy actions
+func enemy_act(enemy_id: String) -> void:
+	# Defensive: require RUN and combat
+	if not RUN or not RUN.get("combat", null):
+		print("RunManager.enemy_act: missing RUN or combat for id:", enemy_id)
+		return
+
+	print("RunManager.enemy_act: called for", enemy_id)
+	# mark in-action so UI won't reschedule
+	RUN["combat"]["inAction"] = true
+	print("RunManager.enemy_act: set inAction = true")
+
+	# find enemy (defensive)
+	var e : Dictionary = {}
+	var found_enemy : bool = false
+	var enemies_list : Array = RUN["combat"].get("enemies", [])
+	for ent in enemies_list:
+		if typeof(ent) == TYPE_DICTIONARY and str(ent.get("id", "")) == str(enemy_id):
+			e = ent
+			found_enemy = true
+			break
+	if not found_enemy or e.size() == 0:
+		print("RunManager.enemy_act: enemy not found (maybe dead) id:", enemy_id)
+		if RUN.has("combat"):
+			RUN["combat"]["inAction"] = false
+		emit_signal("room_changed")
+		return
+
+	# example action: compute dmg and apply
+	var miss_chance : float = float(RUN.get("modifiers", {}).get("enemyMiss", 0.0))
+	print("RunManager.enemy_act: enemy:", e.get("name", "Enemy"), "hp:", e.get("hp", 0), "atk:", e.get("atk", 0), "miss_chance:", miss_chance)
+
+	if randf() < miss_chance:
+		_push_log("%s misses." % e.get("name", "Enemy"))
+		print("RunManager.enemy_act: attack missed for", enemy_id)
+	else:
+		var base : float = float(e.get("atk", 1)) * float(RUN.get("modifiers", {}).get("enemyAtkMul", 1.0))
+		var mitigation : int = int(int(RUN.get("hero", {}).get("def", 0)) - int(RUN.get("modifiers", {}).get("enemyDefSub", 0)))
+		var dmg : int = max(1, int(base) - mitigation - int(RUN.get("modifiers", {}).get("flatDamageReduction", 0)))
+		var hero : Dictionary = RUN.get("hero", {})
+		if int(hero.get("_guard", 0)) > 0:
+			dmg = max(0, dmg - 8)
+			hero["_guard"] = max(0, int(hero.get("_guard", 0)) - 1)
+		hero["hp"] = clamp(int(hero.get("hp", 0)) - dmg, 0, int(hero.get("maxHp", 0)))
+		RUN["hero"] = hero
+		_push_log("%s hits Hero for %d dmg." % [e.get("name", "Enemy"), dmg])
+		print("RunManager.enemy_act: applied dmg", dmg, "to hero. hero_hp now:", hero.get("hp", 0))
+
+	# If hero died as a result of this action, handle run end
+	if int(RUN.get("hero", {}).get("hp", 0)) <= 0:
+		print("RunManager.enemy_act: hero hp <= 0 — handling death now")
+		# clear inAction
+		if RUN.has("combat"):
+			RUN["combat"]["inAction"] = false
+		_handle_run_end()
+		return
+
+	# enemy finished acting; clear inAction and advance turn
+	if RUN.has("combat"):
+		RUN["combat"]["inAction"] = false
+	emit_signal("room_changed")
+	_advance_turn()
+
+# ---------------- Internal helpers ----------------
+func _init_run() -> void:
+	RUN = {
+		"active": true,
+		"floor": 1,
+		"roomIndex": 1,
+		"sequence": _generate_floor_sequence(1),
+		"currentRoom": null,
+		"hero": _make_hero(),
+		"boons": [],
+		"modifiers": {
+			"enemyAtkMul": 1.0,
+			"enemyAtkSub": 0,
+			"enemyDefSub": 0,
+			"enemySpeed": 0,
+			"heroAtkMul": 1.0,
+			"heroEvasion": 0.0,
+			"startEnergy": 0,
+			"flatDamageReduction": 0,
+			"lifeSteal": 0.0,
+			"burnOnHit": 0,
+			"firstHitMul": 1.0,
+			"enemyMiss": 0.0,
+			"critChance": 0.0
+		},
+		"inCombat": false,
+		"fightsThisFloor": 0,
+		"roomsCleared": 0
+	}
+	_push_log("Run started — Floor 1")
+
+func _make_hero() -> Dictionary:
+	var base_max_hp : int = 140
+	var bonus_hp = int(SAVE.get("unlocks", {}).get("maxHp", 0))
+	var atk_bonus = int(SAVE.get("unlocks", {}).get("atk", 0))
+	var def_bonus = int(SAVE.get("unlocks", {}).get("def", 0))
+	return {
+		"id": "hero",
+		"name": "Hero",
+		"hp": base_max_hp + bonus_hp,
+		"maxHp": base_max_hp + bonus_hp,
+		"atk": 16 + atk_bonus,
+		"def": 6 + def_bonus,
+		"energy": 20,
+		"maxEnergy": 100,
+		"speed": 20,
+		"hpRegen": 0
+	}
+
+func _generate_floor_sequence(_floor_num: int) -> Array:
+	# Build a sequence of MAX_FLOOR_ROOMS choosing only fight/happening/puzzle and final boss
+	var seq : Array = []
+	for i in range(MAX_FLOOR_ROOMS):
+		seq.append("fight")
+
+	for i in range(MAX_FLOOR_ROOMS - 1):
+		var r = randf()
+		# probabilities:
+		# 0.00 - 0.55 => fight (55%)
+		# 0.55 - 0.80 => happening (25%)
+		# 0.80 - 1.00 => puzzle (20%)
+		if r <= 0.55:
+			seq[i] = "fight"
+		elif r <= 0.80:
+			seq[i] = "happening"
+		else:
+			seq[i] = "puzzle"
+
+	# ensure last room is boss
+	seq[MAX_FLOOR_ROOMS - 1] = "boss"
+	return seq
+
+func _generate_and_enter_room() -> void:
+	var room_index_raw = RUN.get("roomIndex", 1)
+	var idx : int = int(max(1, int(room_index_raw))) - 1
+	var seq : Array = RUN.get("sequence", [])
+	if idx < 0:
+		idx = 0
+	if seq.size() <= 0:
+		# fallback to default
+		seq = ["fight", "boss"]
+	if idx >= seq.size():
+		idx = seq.size() - 1
+	var rtype_raw = seq[idx]
+	var rtype : String = str(rtype_raw)
+	var is_boss : bool = false
+	if rtype == "boss":
+		is_boss = true
+
+	# set current room info (processed false by default)
+	RUN["currentRoom"] = { "type": rtype, "cleared": false, "isBoss": is_boss, "processed": false }
+
+	# Clear any previous transient puzzle state
+	if RUN.has("puzzle"):
+		RUN.erase("puzzle")
+
+	# If this room is a non-combat room, prepare its immediate effects/data now
+	if rtype == "puzzle":
+		# create puzzle (2 + 2)
+		RUN["puzzle"] = { "question": "2 + 2", "answer": "4", "solved": false }
+		_push_log("A puzzle blocks your path.")
+	elif rtype == "happening":
+		# prepare happening metadata only; HappeningManager will apply effects
+		RUN["currentRoom"]["processed"] = false
+		RUN["happening"] = { "msg": "You found a small spring — healed 10 HP.", "processed": false }
+		_push_log("You found a small spring.")
+
+	# Diagnostic: print which room we entered
+	print("RunManager: entering room index %d (type=%s, is_boss=%s)" % [idx + 1, rtype, str(is_boss)])
+
+	# Notify all UIs now
+	emit_signal("room_changed")
+
+	# Start combat only for fight or boss rooms
+	if rtype == "fight" or is_boss:
+		_start_combat(is_boss)
+
+# Public: advance to the next room in the sequence and enter it
+func next_room() -> void:
+	if not RUN:
+		return
+	var current_index = int(RUN.get("roomIndex", 1))
+	RUN["roomIndex"] = current_index + 1
+	_generate_and_enter_room()
+
+# Public API for puzzles — UI should call this with user input
+func attempt_puzzle_solution(ans: String) -> void:
+	if not RUN:
+		return
+	if not RUN.get("puzzle", null):
+		_push_log("No puzzle present.")
+		return
+
+	var expected : String = str(RUN["puzzle"].get("answer", "")).strip_edges()
+	var given : String = str(ans).strip_edges()
+
+	# Special token for GiveUp (UI can call runmgr.attempt_puzzle_solution("GIVEUP"))
+	if given == "GIVEUP":
+		_push_log("You gave up. The trap kills you.")
+		# kill hero and end run
+		var hero : Dictionary = RUN.get("hero", {}) as Dictionary
+		hero["hp"] = 0
+		RUN["hero"] = hero
+		_push_log("Hero has died from giving up.")
+		emit_signal("room_changed")
+		_handle_run_end()
+		return
+
+	if given == expected:
+		RUN["puzzle"]["solved"] = true
+		if RUN.get("currentRoom", null):
+			RUN["currentRoom"]["processed"] = true
+		_push_log("Puzzle solved.")
+		emit_signal("room_changed")
+	else:
+		# wrong answer => death
+		_push_log("Incorrect answer — the trap kills you.")
+		var hero2 : Dictionary = RUN.get("hero", {}) as Dictionary
+		hero2["hp"] = 0
+		RUN["hero"] = hero2
+		_push_log("Hero has died.")
+		emit_signal("room_changed")
+		_handle_run_end()
+
+# ---------------- Combat helpers ----------------
+func _start_combat(is_boss: bool) -> void:
+	var enemies : Array = []
+	var floor_value = RUN.get("floor", 1)
+	var floor_num : int = int(floor_value)
+
+	if is_boss:
+		enemies.append(_make_enemy("Floor Boss", floor_num, 3.8))
+	else:
+		var names : Array = ["Crypt Warden","Fanged Wisp","Gloom Bat","Rotted Guard","Shard Spider"]
+		var enemy_count : int = 1 + floor_num
+		if enemy_count < 1:
+			enemy_count = 1
+		if enemy_count > 5:
+			enemy_count = 5
+		for i in range(enemy_count):
+			var scale = 1.0 + randf() * 0.9
+			enemies.append(_make_enemy(names[i % names.size()], floor_num, scale))
+
+	RUN["combat"] = {
+		"enemies": enemies,
+		"turnQueue": [],
+		"activeIndex": 0,
+		"logs": [],
+		"inAction": false,
+		"selected_target_id": null
+	}
+
+	RUN["inCombat"] = true
+	RUN["fightsThisFloor"] = int(RUN.get("fightsThisFloor", 0)) + 1
+
+	_build_turn_queue()
+
+	if RUN.get("combat", null):
+		RUN["combat"]["activeIndex"] = 0
+
+	emit_signal("combat_started")
+
+func _make_enemy(enemy_name: String, floor_num: int, scale: float = 1.0) -> Dictionary:
+	var base_hp : int = 40 + floor_num * 18
+	var base_atk : int = 10 + int(floor_num * 3)
+	var base_def : int = int(floor_num / 2.0)
+	return {
+		"id": "m%d%d" % [Time.get_unix_time_from_system(), randi() % 1000],
+		"name": enemy_name,
+		"hp": int(base_hp * scale),
+		"maxHp": int(base_hp * scale),
+		"atk": max(1, int(base_atk * scale)),
+		"def": base_def,
+		"speed": randi() % 10 + 8
+	}
+
+func _build_turn_queue() -> void:
+	if not RUN or not RUN.get("combat", null):
+		return
+
+	var q : Array = []
+	var hero_entry : Dictionary = {"type":"ally", "id": RUN.get("hero", {}).get("id", "hero"), "speed": int(RUN.get("hero", {}).get("speed", 0))}
+	q.append(hero_entry)
+
+	var enemies_arr : Array = RUN["combat"].get("enemies", [])
+	for e in enemies_arr:
+		if e != null:
+			q.append({"type":"monster", "id": str(e.get("id", "")), "speed": int(e.get("speed", 0))})
+
+	q.sort_custom(Callable(self, "_sort_by_speed"))
+	RUN["combat"]["turnQueue"] = q
+
+func _sort_by_speed(a, b):
+	return int(b["speed"] - a["speed"])
+
+func _get_enemy_by_id(enemy_id: String) -> Dictionary:
+	if not RUN or not RUN.get("combat", null):
+		return {}
+	var enemies_arr : Array = RUN["combat"].get("enemies", [])
+	for e in enemies_arr:
+		if str(e.get("id", "")) == str(enemy_id):
+			return e
+	return {}
+
+func _end_turn() -> void:
+	if not RUN or not RUN.get("combat", null):
+		return
+
+	_apply_end_of_turn_effects()
+
+	var survivors : Array = []
+	var combat = RUN["combat"]
+	var enemies_arr : Array = combat.get("enemies", [])
+	for m in enemies_arr:
+		if int(m.get("hp", 0)) > 0:
+			survivors.append(m)
+
+	RUN["combat"]["enemies"] = survivors
+	_build_turn_queue()
+
+	var tq : Array = RUN["combat"].get("turnQueue", [])
+	if tq.size() == 0:
+		RUN["combat"]["activeIndex"] = 0
+	else:
+		var idx = int(RUN["combat"].get("activeIndex", 0))
+		if idx < 0:
+			idx = 0
+		if idx >= tq.size():
+			idx = idx % tq.size()
+		RUN["combat"]["activeIndex"] = idx
+
+	_check_combat_end()
+
+func _advance_turn() -> void:
+	if not RUN or not RUN.get("combat", null):
+		return
+
+	var combat = RUN["combat"]
+	var tq : Array = combat.get("turnQueue", [])
+	if tq.size() == 0:
+		return
+
+	var idx : int = int(combat.get("activeIndex", 0))
+	idx += 1
+	if idx >= tq.size():
+		idx = 0
+	combat["activeIndex"] = idx
+
+	_end_turn()
+
+func _apply_end_of_turn_effects() -> void:
+	if not RUN or not RUN.get("inCombat", false):
+		return
+	for m in RUN["combat"].get("enemies", []):
+		if m and m.has("_burn") and int(m.get("_burn", 0)) > 0:
+			var dmg : int = 3 * int(m.get("_burn", 0))
+			m["hp"] = max(0, int(m.get("hp", 0)) - dmg)
+			_push_log("%s suffers %d burn damage." % [m.get("name", "Enemy"), dmg])
+			m["_burn"] = max(0, int(m.get("_burn", 0)) - 1)
+	var hero : Dictionary = RUN.get("hero", {})
+	if int(hero.get("hpRegen", 0)) > 0:
+		hero["hp"] = clamp(int(hero.get("hp", 0)) + int(hero.get("hpRegen", 0)), 0, int(hero.get("maxHp", 0)))
+		RUN["hero"] = hero
+		_push_log("Hero regenerates %d HP." % int(hero.get("hpRegen", 0)))
+
+func _check_combat_end() -> void:
+	if not RUN:
+		return
+	var hero_hp = int(RUN.get("hero", {}).get("hp", 0))
+	if hero_hp <= 0:
+		_handle_run_end()
+		return
+
+	var combat_obj = RUN.get("combat", null)
+	if not combat_obj:
+		return
+
+	var enemies_arr : Array = combat_obj.get("enemies", [])
+	if enemies_arr.size() == 0:
+		RUN["inCombat"] = false
+
+		var reward : int = 0
+		if RUN.get("currentRoom", {}).get("isBoss", false):
+			reward = randi() % 7 + 8
+		else:
+			reward = randi() % 4 + 2
+
+		SAVE["temples"] = int(SAVE.get("temples", 0)) + int(reward)
+
+		var sm = get_node_or_null("/root/SaveManager")
+		if sm:
+			sm.save_to_disk(SAVE)
+
+		_push_log("Combat won. Gained %d Temples." % reward)
+
+		emit_signal("combat_victory_boon")
+
+		# Remove combat object so UIs stop considering we're in combat.
+		if RUN.has("combat"):
+			RUN.erase("combat")
+
+		# Tell UI to refresh
+		emit_signal("room_changed")
+
+func _perform_player_attack(target_id: String) -> void:
+	var t : Dictionary = _get_enemy_by_id(target_id)
+	if t.size() == 0:
+		_push_log("No target found.")
+		return
+	var hero : Dictionary = RUN.get("hero", {})
+	var dmg : int = max(1, int(int(hero.get("atk", 0)) * float(RUN.get("modifiers", {}).get("heroAtkMul", 1.0))) - int(t.get("def", 0)))
+	t["hp"] = max(0, int(t.get("hp", 0)) - dmg)
+	_push_log("Hero attacks %s for %d dmg." % [t.get("name", "Enemy"), dmg])
+
+func _perform_player_ultimate(target_id: String) -> void:
+	var t : Dictionary = _get_enemy_by_id(target_id)
+	if t.size() == 0:
+		_push_log("No target found for Ultimate.")
+		return
+	var hero : Dictionary = RUN.get("hero", {})
+	var dmg : int = max(1, int(int(hero.get("atk", 0)) * 3.0))
+	t["hp"] = max(0, int(t.get("hp", 0)) - dmg)
+	_push_log("Hero uses ULTIMATE on %s for %d dmg." % [t.get("name", "Enemy"), dmg])
+
+func _push_log(msg: String) -> void:
+	if not RUN:
+		print("[LOG] " + msg)
+		return
+	if not RUN.get("combat", null):
+		# keep system logs visible on console if no combat log exists
+		print("[LOG] " + msg)
+		return
+	if not RUN["combat"].has("logs"):
+		RUN["combat"]["logs"] = []
+	var ts : String = str(Time.get_unix_time_from_system())
+	RUN["combat"]["logs"].insert(0, "[%s] %s" % [ts, msg])
+
+func get_boon_choices() -> Array:
+	return [
+		{ "id": "boon_hp", "title": "Max HP +10", "desc": "Increase max HP by 10." },
+		{ "id": "boon_atk", "title": "Atk +3", "desc": "Increase attack by 3." },
+		{ "id": "boon_energy", "title": "Energy +20", "desc": "Increase max energy by 20." }
+	]
+
+func apply_boon(boon_id: String) -> void:
+	match boon_id:
+		"boon_hp":
+			var hero : Dictionary = RUN.get("hero", {})
+			hero["maxHp"] = int(hero.get("maxHp", 0)) + 10
+			hero["hp"] = int(hero.get("hp", 0)) + 10
+			RUN["hero"] = hero
+			_push_log("Gained boon: Max HP +10")
+		"boon_atk":
+			var hero2 : Dictionary = RUN.get("hero", {})
+			hero2["atk"] = int(hero2.get("atk", 0)) + 3
+			RUN["hero"] = hero2
+			_push_log("Gained boon: Atk +3")
+		"boon_energy":
+			var hero3 : Dictionary = RUN.get("hero", {})
+			hero3["maxEnergy"] = int(hero3.get("maxEnergy", 0)) + 20
+			hero3["energy"] = int(hero3.get("energy", 0)) + 20
+			RUN["hero"] = hero3
+			_push_log("Gained boon: Energy +20")
+		_:
+			_push_log("Unknown boon id: " + boon_id)
+
+# Centralized run end handler (clean, deterministic)
+func _handle_run_end() -> void:
+	# mark first death if not already
+	SAVE["firstDeath"] = true
+	var sm = get_node_or_null("/root/SaveManager")
+	if sm:
+		sm.save_to_disk(SAVE)
+
+	# mark run inactive but keep RUN so UIs can show final state
+	if not RUN:
+		RUN = {}
+	RUN["active"] = false
+	# ensure any combat flags are cleared
+	RUN["inCombat"] = false
+
+	# Remove combat object so UIs stop scheduling enemy actions.
+	if RUN.has("combat"):
+		RUN.erase("combat")
+
+	# notify UIs of final state so they can read RUN
+	emit_signal("room_changed")
+	emit_signal("run_ended")

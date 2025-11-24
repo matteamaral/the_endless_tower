@@ -1,0 +1,191 @@
+# PuzzleRoot.gd  (attach to PuzzleRoot Control)
+extends Control
+
+# Names we expect in the scene (you can change these if your nodes differ)
+const QUESTION_NAME := "QuestionLabel"
+const ANSWER_NAME := "AnswerLine"
+const SUBMIT_NAME := "SubmitBtn"
+const CLOSE_NAME := "CloseBtn"
+
+# Found nodes (nullable)
+var question_label : Label = null
+var answer_line : LineEdit = null
+var submit_btn : Button = null
+var close_btn : Button = null
+
+var runmgr : Node = null
+var _combat_root : Node = null
+
+func _ready() -> void:
+	# Do NOT crash if things are missing; search instead of rigid get_node
+	question_label = _find_child_named(self, QUESTION_NAME) as Label
+	answer_line = _find_child_named(self, ANSWER_NAME) as LineEdit
+	submit_btn = _find_child_named(self, SUBMIT_NAME) as Button
+	close_btn = _find_child_named(self, CLOSE_NAME) as Button
+
+	# Log helpful warnings if something was not found
+	if not question_label:
+		push_warning("PuzzleRoot: QuestionLabel not found (expected name: %s)" % QUESTION_NAME)
+	if not answer_line:
+		push_warning("PuzzleRoot: AnswerLine not found (expected name: %s)" % ANSWER_NAME)
+	if not submit_btn:
+		push_warning("PuzzleRoot: SubmitBtn not found (expected name: %s)" % SUBMIT_NAME)
+	if not close_btn:
+		push_warning("PuzzleRoot: CloseBtn not found (expected name: %s)" % CLOSE_NAME)
+
+	# wire up RunManager safely
+	runmgr = get_node_or_null("/root/RunManager")
+	if runmgr:
+		if not runmgr.is_connected("room_changed", Callable(self, "_on_room_changed")):
+			runmgr.connect("room_changed", Callable(self, "_on_room_changed"))
+		if not runmgr.is_connected("run_ended", Callable(self, "_on_run_ended")):
+			runmgr.connect("run_ended", Callable(self, "_on_run_ended"))
+
+	# connect buttons if they exist
+	if submit_btn:
+		if not submit_btn.is_connected("pressed", Callable(self, "_on_submit_pressed")):
+			submit_btn.connect("pressed", Callable(self, "_on_submit_pressed"))
+	if close_btn:
+		if not close_btn.is_connected("pressed", Callable(self, "_on_close_pressed")):
+			close_btn.connect("pressed", Callable(self, "_on_close_pressed"))
+
+	# find CombatRoot to hide when puzzle active (optional but useful)
+	_combat_root = get_node_or_null("/root/Mainroot/CombatRoot")
+
+	# Start hidden; UI will show when room_changed signals a puzzle
+	visible = false
+
+
+# Recursive helper: find child node anywhere under `root` with matching name
+func _find_child_named(root: Node, target_name: String) -> Node:
+	if not root:
+		return null
+	# check this node first
+	if root.name == target_name:
+		return root
+	# then children (DFS)
+	for c in root.get_children():
+		if typeof(c) != TYPE_OBJECT:
+			continue
+		if c.name == target_name:
+			return c
+		var found = _find_child_named(c, target_name)
+		if found:
+			return found
+	return null
+
+
+func _on_room_changed() -> void:
+	# Show puzzle UI only when currentRoom.type == "puzzle"
+	if not runmgr or not runmgr.RUN:
+		_visible_cleanup()
+		return
+
+	var rtype = str(runmgr.RUN.get("currentRoom", {}).get("type", ""))
+	if rtype == "puzzle" and runmgr.RUN.get("puzzle", null):
+		# populate UI text safely
+		var q = str(runmgr.RUN["puzzle"].get("question", "Solve this:"))
+		if question_label:
+			question_label.text = q
+		if answer_line:
+			answer_line.text = ""
+			answer_line.grab_focus()
+		_visible_setup(true)
+	else:
+		_visible_setup(false)
+
+
+func _on_run_ended() -> void:
+	# If run ended (due to wrong puzzle or death), hide puzzle UI
+	_visible_setup(false)
+
+
+func _on_submit_pressed() -> void:
+	if not runmgr:
+		# defensive: hide UI if no run manager
+		_visible_setup(false)
+		return
+
+	var ans : String = ""
+	if answer_line:
+		ans = str(answer_line.text)
+	else:
+		# if no answer input is present, treat as blank
+		ans = ""
+
+	# Call RunManager.attempt_puzzle_solution which may or may not return a value.
+	var solved : bool = false
+	if runmgr.has_method("attempt_puzzle_solution"):
+		# If function returns something, try to capture it.
+		var ret = runmgr.attempt_puzzle_solution(ans)
+		if typeof(ret) == TYPE_BOOL:
+			solved = bool(ret)
+		else:
+			# Fallback: inspect RUN state for puzzle.solved
+			if runmgr.RUN and runmgr.RUN.get("puzzle", null):
+				solved = bool(runmgr.RUN["puzzle"].get("solved", false))
+	else:
+		push_warning("PuzzleRoot: RunManager missing attempt_puzzle_solution()")
+		# nothing we can do — hide and return
+		_visible_setup(false)
+		return
+
+	# if solved -> advance to next room (RunManager handles marking processed)
+	if solved:
+		_visible_setup(false)
+		if runmgr and runmgr.has_method("next_room"):
+			runmgr.next_room()
+	else:
+		# failed -> RunManager may have handled death. hide puzzle UI and let
+		# the RunManager/CombatManager show death UI or route.
+		_visible_setup(false)
+
+
+func _on_close_pressed() -> void:
+	# close but don't solve; user can re-open if room unchanged
+	_visible_setup(false)
+
+# when hooking UI in _ready or implicit_ready:
+	var giveup_btn = get_node_or_null("PanelVBox/ButtonsRow/GiveUpBtn")
+	if giveup_btn:
+		giveup_btn.connect("pressed", Callable(self, "_on_giveup_pressed"))
+
+func _on_giveup_pressed() -> void:
+	# DO NOT shadow runmgr – use a differently named variable
+	var rm = get_node_or_null("/root/RunManager")
+	if not rm or not rm.RUN:
+		return
+
+	# Give Up = immediate death
+	var hero : Dictionary = rm.RUN.get("hero", {}) as Dictionary
+	hero["hp"] = 0
+	rm.RUN["hero"] = hero
+	rm._push_log("You give up. The trap ends your journey.")
+
+	# Close popup
+	var p = get_node_or_null("PuzzlePopup")
+	if p:
+		p.hide()
+		p.queue_free()
+
+	# Trigger run end properly
+	if rm.has_method("_handle_run_end"):
+		rm._handle_run_end()
+
+		
+# show/hide helpers that also hide CombatRoot to avoid input conflicts
+func _visible_setup(visible_flag: bool) -> void:
+	visible = bool(visible_flag)
+	# toggle CombatRoot visibility defensively
+	if _combat_root:
+		if visible:
+			_combat_root.visible = false
+		else:
+			# restore only if main UI still expects it (defensive)
+			_combat_root.visible = true
+
+
+func _visible_cleanup() -> void:
+	visible = false
+	if _combat_root:
+		_combat_root.visible = true

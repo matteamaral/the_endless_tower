@@ -1,0 +1,150 @@
+============================================================
+GAME NODE TREE REFERENCE (ALL SCENES)
+============================================================
+
+This document lists the full node hierarchy for every scene
+in the project (as of the most recent working version).
+All indentation and line characters are plain ASCII and
+will display correctly in README.txt.
+These are best assumptions. Any discrepancy should be questioned, not assumed.
+
+============================================================
+1. MAIN UI (Main.tscn)
+============================================================
+
+Mainroot (Control) [MainUI.gd]
+ ├ TitleScreen (Control)
+ ├ CombatRoot (Control)  [hidden on start]
+ ├ HappeningRoot (Control)  [hidden on start]
+ └ PuzzleRoot (Control)  [hidden on start]
+  
+============================================================
+2. COMBAT SCENE (Combat.tscn)
+============================================================
+
+CombatRoot (Control) [CombatManager.gd]
+├── Layout
+│   └── TopRow (HBoxContainer)
+│       ├── FloorLabel (Label)
+│       ├── HPLabel (Label)
+│       ├── EnergyLabel (Label)
+│       └── TargetLabel (Label)
+│   └── EnemiesRow (HBoxContainer)
+│   └── ActionsRow (VBoxContainer)
+│       ├── AttackBtn (Button)
+│       ├── UltimateBtn (Button)
+│       ├── GuardBtn (Button)
+│       └── ChargeBtn (Button)
+│   └── TurnOrder (VBoxContainer)
+│   └── CombatLog (TextEdit)
+├── DeathPanel (Control) [hidden]
+│   └── DeathPanelContainer (PanelContainer)
+│       └── DeathVbox (VBoxContainer)
+│           ├── TitleLabel (Label)
+│           ├── InfoLabel (Label)
+│           └── ButtonsRow (HBoxContainer)
+│               └── ReturnBtn (Button) — _on_death_return_pressed connection
+├── BoonPanel (Control) [hidden]
+    └── BoonPanelContainer (PanelContainer)
+        └── BoonVbox (VBoxContainer)
+            ├── TitleLabel (Label)
+            └── ChoicesRow (HBoxContainer)
+                ├── BoonCol1 (VBoxContainer)
+                │   ├── BoonLbl1 (Label)
+                │   └── TakeBtn1 (Button)
+                ├── BoonCol2 (VBoxContainer)
+                │   ├── BoonLbl2 (Label)
+                │   └── TakeBtn2 (Button)
+                └── BoonCol3 (VBoxContainer)
+                    ├── BoonLbl3 (Label)
+                    └── TakeBtn3 (Button)
+============================================================
+3. HAPPENING SCENE (Happening.tscn)
+============================================================
+
+HappeningRoot (Control) [HappeningManager.gd]
+ └ VBox (VBoxContainer)
+      ├ TitleLabel (Label)
+      ├ InfoLabel (Label)
+      └ ButtonsRow (HBoxContainer)
+          ├ AcceptBtn (Button)
+          └ CloseBtn (Button)
+      
+
+============================================================
+4. PUZZLE SCENE (Puzzle.tscn)
+============================================================
+
+PuzzleRoot (Control) [PuzzleManager.gd]
+ ├ PanelVBox (VBoxContainer)
+      ├ TitleLabel (Label)
+      ├ QuestionLabel (Label)
+      ├ AnswerLine (Label)
+      └ ButtonsRow (HBoxContainer)
+          ├ SubmitBtn (Button)
+          └ CloseBtn (Button)
+└ FeedbackLabel (Label)
+
+
+============================================================
+5. LOBBY (Lobby.tscn)
+============================================================
+
+LobbyRoot (Control) [LobbyManager.gd]
+ └ VBox (VBoxContainer)
+      ├ TitleLabel (Label)
+      ├ RunCounterLabel (Label)
+      └ StartRunBtn (Button)
+
+============================================================
+6. AUTOLOADS
+============================================================
+
+These exist in Project Settings → Autoload.
+
+RunManager (RunManager.gd)
+SaveManager (SaveManager.gd)
+
+
+============================================================
+7. SIGNAL REQUIREMENTS
+============================================================
+
+Mainroot:
+ - StartRunBtn.pressed → MainUI._on_start_pressed
+
+LobbyRoot:
+ - StartRunBtn.pressed → LobbyManager._on_start_pressed
+
+CombatRoot:
+ - ReturnToLobbyBtn.pressed → CombatManager._on_death_return_pressed
+
+RunManager → MainUI:
+ - run_started → _on_run_started
+ - run_ended → _on_run_ended
+ - combat_started → _on_combat_started
+ - room_changed → CombatManager._on_room_changed
+ - room_changed → HappeningManager._on_room_changed
+ - room_changed → PuzzleManager._on_room_changed
+
+============================================================
+8. SUMMARY
+============================================================
+
+Mainroot holds all three room UI roots:
+CombatRoot
+HappeningRoot
+PuzzleRoot
+
+Only one should be visible at a time.  
+Puzzle and Happening work identically: they show/hide based on RunManager room_changed.
+
+CombatRoot has the most nodes and includes enemy slots, UI buttons, log, and death panel.
+
+LobbyRoot is a minimal scene that appears between runs.
+
+This reference file ensures AI tools and developers understand the layout.
+
+============================================================
+END OF FILE
+============================================================
