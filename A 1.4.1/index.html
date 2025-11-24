@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Realmspace: The Shifting Tower — Alpha Update</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Left: HUD / Party -->
+    <div class="panel">
+      <h3>Hero & Meta</h3>
+      <div class="hud">
+        <div class="stat-row"><div><strong id="heroName">-</strong></div><small>Temples: <span id="hudTemples">0</span></small></div>
+        <div class="stat-row"><div>HP</div><div id="hudHP">-</div></div>
+        <div class="stat-row"><div>Energy</div><div id="hudEnergy">-</div></div>
+        <div class="stat-row"><div>Floor</div><div id="hudFloor">-</div></div>
+        <div class="stat-row"><div>Room</div><div id="hudRoom">-</div></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn primary" id="startRunBtn">Start Run</button>
+          <button class="btn ghost" id="toLobbyBtn">Lobby</button>
+        </div>
+      </div>
+
+      <h3 style="margin-top:12px">Party / Stats</h3>
+      <div class="party" id="partyList"></div>
+    </div>
+
+    <!-- Center: Room / Battlefield -->
+    <div class="room-stage panel" id="mainPanel">
+      <div class="battlefield">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="room-title" id="roomTitle">No Run</div>
+            <div class="room-sub small" id="roomSub">Start a run to explore the tower.</div>
+          </div>
+          <div><button class="btn" id="nextRoomBtn" style="display:none" disabled>Skip Room</button></div>
+        </div>
+
+        <div class="monsters" id="monsterGrid"></div>
+
+        <div style="margin-top:6px"><strong>Actions</strong></div>
+        <div id="actionsArea"></div>
+
+        <div style="margin-top:6px" class="small">Controls: <button class="btn" id="endTurnBtn">Force Next Turn</button> <button class="btn ghost" id="abortRunBtn">Abort Run</button></div>
+      </div>
+
+      <div class="info-col">
+        <div>
+          <h3>Turn Order</h3>
+          <div class="turn-order" id="turnOrder"></div>
+        </div>
+
+        <div>
+          <h3>Battle Log</h3>
+          <div class="log" id="logArea">Welcome to Realmspace — start a run to explore the Tower.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Lobby & Purchases (modal) -->
+    <div class="panel">
+      <h3>Lobby</h3>
+      <div class="small">Pampasha awaits once you die. Spend Temples here.</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <div class="stat-row"><div>Temples</div><div id="hudTemplesRight">0</div></div>
+        <div style="display:flex;gap:8px">
+          <button id="openLobbyBtn" class="btn">Open Lobby</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lobby modal -->
+  <div id="lobbyModal" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center">
+    <div class="panel modal" style="max-width:640px;margin:60px auto">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Pampasha's Lobby</h3><div>Temples: <strong id="lobbyTemples">0</strong></div>
+      </div>
+      <p class="small">Spend Temples on permanent upgrades for future runs.</p>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <div style="flex:1"><div class="small">+5 Max HP (5 Temples)</div><div style="margin-top:6px"><button class="btn" id="buyMaxHp">Buy</button></div></div>
+        <div style="flex:1"><div class="small">+2 ATK (6 Temples)</div><div style="margin-top:6px"><button class="btn" id="buyAtk">Buy</button></div></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn ghost" id="lobbyClose">Close</button></div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+:root{
+  --bg:#071022;
+  --panel:#0f2636;
+  --muted:#94a3b8;
+  --accent:#7c3aed;
+  --accent-2:#06b6d4;
+  --glass: rgba(255,255,255,0.03);
+  --card: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  --radius:12px;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:linear-gradient(180deg,#042033 0%,var(--bg) 100%);font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial;color:#f3f7fb}
+.app{max-width:1200px;margin:20px auto;padding:18px;display:grid;grid-template-columns:280px 1fr 320px;gap:16px}
+
+/* Panels */
+.panel{background:var(--panel);border-radius:var(--radius);padding:14px;box-shadow:0 8px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.03)}
+.panel h3{margin:0 0 8px 0;font-size:14px;color:var(--muted)}
+
+/* HUD elements */
+.hud{display:flex;flex-direction:column;gap:8px}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--glass);border-radius:10px;border:1px solid rgba(255,255,255,0.02)}
+.stat-row small{color:var(--muted)}
+
+/* Party slots */
+.party{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.party-slot{display:flex;align-items:center;gap:10px;padding:8px;background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);border-radius:10px;border:1px solid rgba(255,255,255,0.02)}
+.portrait{width:56px;height:56px;border-radius:8px;background:linear-gradient(180deg,#071728,#0e2030);display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(255,255,255,0.04)}
+.portrait img{width:100%;height:100%;object-fit:cover}
+.p-meta{flex:1}
+.p-name{font-weight:700}
+.p-sub{font-size:12px;color:var(--muted)}
+.hp-bar{height:8px;background:rgba(255,255,255,0.04);border-radius:99px;margin-top:6px;overflow:hidden}
+.hp-fill{height:100%;width:60%;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width .4s ease}
+
+/* Center battlefield */
+.room-stage{background:linear-gradient(180deg,rgba(255,255,255,0.01),rgba(255,255,255,0.005));border-radius:12px;padding:16px;min-height:520px;display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start}
+.battlefield{padding:8px;display:flex;flex-direction:column;gap:12px}
+.room-title{font-weight:800;font-size:18px}
+.room-sub{color:var(--muted);font-size:13px}
+
+/* Monsters grid */
+.monsters{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.monster{background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);padding:8px;border-radius:10px;border:1px solid rgba(255,255,255,0.02);display:flex;gap:10px;align-items:center}
+.m-portrait{width:64px;height:64px;border-radius:8px;background:linear-gradient(180deg,#101522,#071022);display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.03);overflow:hidden}
+.m-name{font-weight:700}
+.m-attr{font-size:12px;color:var(--muted)}
+
+/* Controls and action bar */
+.controls{display:flex;gap:8px;margin-top:6px}
+.btn{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,0.03);cursor:pointer;font-weight:700}
+.btn.primary{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:white;border:none;box-shadow:0 8px 20px rgba(124,58,237,0.12)}
+.btn.ghost{background:transparent;border:1px dashed rgba(255,255,255,0.03)}
+
+/* Right info */
+.info-col{display:flex;flex-direction:column;gap:10px}
+.turn-order{display:flex;gap:8px;overflow:auto;padding:8px;background:var(--glass);border-radius:10px;border:1px solid rgba(255,255,255,0.02)}
+.turn-token{min-width:60px;padding:8px;border-radius:8px;background:transparent;display:flex;flex-direction:column;align-items:center;gap:6px;border:1px solid rgba(255,255,255,0.02)}
+.turn-token.active{box-shadow:0 10px 30px rgba(124,58,237,0.12);transform:translateY(-6px);border-color:rgba(124,58,237,0.3)}
+
+/* Log */
+.log{background:rgba(255,255,255,0.02);padding:10px;border-radius:10px;color:var(--muted);font-size:13px;min-height:140px;overflow:auto}
+
+/* Modal */
+.modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;z-index:60}
+.modal{background:var(--panel);padding:16px;border-radius:12px;max-width:760px;width:92%;border:1px solid rgba(255,255,255,0.03)}
+
+/* small helpers */
+.small{font-size:12px;color:var(--muted)}
+.center{display:flex;align-items:center;justify-content:center}
+
+/* responsive */
+@media (max-width:980px){.app{grid-template-columns:1fr;padding:10px}.room-stage{grid-template-columns:1fr}.info-col{order:3}}
